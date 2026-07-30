@@ -1,0 +1,1 @@
+# Capturador_Topicos_Twitter
