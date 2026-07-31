@@ -1,0 +1,230 @@
+{
+  "name": "Capturador de Tópicos do Twitter",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "capturar-thread",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1f6a2b10-0001-4a10-9a10-000000000001",
+      "name": "Receber Link do Tweet",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "capturar-thread"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recebe { url: \"https://x.com/usuario/status/123...\" } no corpo da requisicao.\n// Aceita qualquer tweet da thread (o primeiro, o ultimo ou um do meio):\n// a busca segue a cadeia in_reply_to_status_id_str para tras ate a raiz,\n// contanto que cada resposta seja do MESMO autor (auto-resposta encadeada).\n// Usa o endpoint publico de sindicacao do Twitter/X (o mesmo usado para\n// embeds de tweets em sites de terceiros) - nao requer API key nem login.\n\nconst SYNDICATION_URL = 'https://cdn.syndication.twimg.com/tweet-result';\nconst MAX_HOPS = 200;\n\nfunction extrairId(urlOuId) {\n  if (/^\\d+$/.test(urlOuId)) return urlOuId;\n  const m = urlOuId.match(/(?:twitter\\.com|x\\.com)\\/[^/]+\\/status\\/(\\d+)/);\n  if (!m) throw new Error(`Não foi possível extrair o ID do tweet de: ${urlOuId}`);\n  return m[1];\n}\n\nfunction token(id) {\n  // Mesma fórmula pública usada por bibliotecas de embed (ex.: react-tweet).\n  return ((Number(id) / 1e15) * Math.PI).toString(36).replace(/(0+|\\.)/g, '');\n}\n\nasync function buscarTweet(id) {\n  const resp = await this.helpers.httpRequest({\n    url: `${SYNDICATION_URL}?id=${id}&token=${token(id)}`,\n    method: 'GET',\n    json: true,\n  });\n  const u = resp.user || {};\n  return {\n    id: resp.id_str,\n    autor_nome: u.name || '',\n    autor_usuario: u.screen_name || '',\n    texto: resp.text || '',\n    criado_em: resp.created_at || '',\n    curtidas: resp.favorite_count || 0,\n    respostas: resp.conversation_count || 0,\n    retweets: resp.retweet_count || 0,\n    in_reply_to_id: resp.in_reply_to_status_id_str || null,\n    in_reply_to_usuario: resp.in_reply_to_screen_name || null,\n  };\n}\n\nconst entrada = $input.first().json;\nconst urlEntrada = entrada.url || (entrada.body && entrada.body.url);\nif (!urlEntrada) {\n  throw new Error('Informe \"url\" no corpo da requisição (JSON: { \"url\": \"https://x.com/usuario/status/123\" }).');\n}\n\nconst idInicial = extrairId(urlEntrada);\nlet atual = await buscarTweet.call(this, idInicial);\nconst autor = atual.autor_usuario;\nconst cadeia = [atual];\n\nlet hops = 0;\nwhile (atual.in_reply_to_id && atual.in_reply_to_usuario === autor && hops < MAX_HOPS) {\n  atual = await buscarTweet.call(this, atual.in_reply_to_id);\n  cadeia.push(atual);\n  hops++;\n}\n\ncadeia.reverse(); // raiz primeiro, tweet informado por último\nconst classificacao = cadeia.length > 1 ? 'thread' : 'tweet_unico';\n\nreturn [{\n  json: {\n    classificacao,\n    total_tweets: cadeia.length,\n    autor_usuario: cadeia[0].autor_usuario,\n    autor_nome: cadeia[0].autor_nome,\n    tweets: cadeia,\n  },\n}];\n"
+      },
+      "id": "1f6a2b10-0002-4a10-9a10-000000000002",
+      "name": "Montar Thread",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta um texto limpo e legível (Markdown) a partir dos tweets já ordenados.\nconst dado = $input.first().json;\nconst { classificacao, tweets } = dado;\n\nconst linhas = [];\nlinhas.push(\n  classificacao === 'thread'\n    ? `# Thread de @${tweets[0].autor_usuario} (${tweets[0].autor_nome})`\n    : `# Tweet de @${tweets[0].autor_usuario} (${tweets[0].autor_nome})`\n);\nlinhas.push('');\nlinhas.push(`- Classificação: **${classificacao}**`);\nlinhas.push(`- Total de tweets: **${tweets.length}**`);\nlinhas.push(`- Primeiro tweet: ${tweets[0].criado_em}`);\nlinhas.push('');\nlinhas.push('---');\nlinhas.push('');\n\ntweets.forEach((t, i) => {\n  const prefixo = classificacao === 'thread' ? `**${i + 1}/${tweets.length}** ` : '';\n  linhas.push(`${prefixo}${t.texto}`);\n  linhas.push(`\\n*${t.curtidas} curtidas - ${t.respostas} respostas - ${t.retweets} retweets*`);\n  linhas.push('');\n});\n\nreturn [{\n  json: {\n    ...dado,\n    texto_formatado: linhas.join('\\n'),\n  },\n}];\n"
+      },
+      "id": "1f6a2b10-0003-4a10-9a10-000000000003",
+      "name": "Formatar Texto Limpo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "1f6a2b10-0004-4a10-9a10-000000000004",
+      "name": "Responder com Resultado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1460,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-e-thread",
+              "leftValue": "={{ $json.classificacao }}",
+              "rightValue": "thread",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1f6a2b10-0005-4a10-9a10-000000000005",
+      "name": "É uma thread?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        960,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"gpt-4o-mini\", messages: [ { role: \"user\", content: \"Resuma esta thread do Twitter em bullet points, em português, mantendo os pontos principais:\\n\\n\" + $json.tweets.map(t => t.texto).join(\"\\n\\n\") } ] }) }}",
+        "options": {}
+      },
+      "id": "1f6a2b10-0006-4a10-9a10-000000000006",
+      "name": "Resumir com IA (opcional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        550
+      ],
+      "disabled": true,
+      "notes": "Requer credencial de API key (OpenAI, Anthropic, etc.) configurada como Header Auth. Desabilitado por padrão - ative e configure a credencial para usar o resumo automático."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "COLE_AQUI_O_ID_DA_PLANILHA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Capturas",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "classificacao": "={{ $json.classificacao }}",
+            "autor": "={{ $json.autor_usuario }}",
+            "total_tweets": "={{ $json.total_tweets }}",
+            "texto": "={{ $json.texto_formatado }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "1f6a2b10-0007-4a10-9a10-000000000007",
+      "name": "Salvar no Google Sheets (opcional)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1460,
+        450
+      ],
+      "disabled": true,
+      "notes": "Requer credencial Google Sheets OAuth2 e o ID de uma planilha real. Desabilitado por padrão."
+    }
+  ],
+  "connections": {
+    "Receber Link do Tweet": {
+      "main": [
+        [
+          {
+            "node": "Montar Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Thread": {
+      "main": [
+        [
+          {
+            "node": "Formatar Texto Limpo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Texto Limpo": {
+      "main": [
+        [
+          {
+            "node": "Responder com Resultado",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "É uma thread?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É uma thread?": {
+      "main": [
+        [
+          {
+            "node": "Resumir com IA (opcional)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Salvar no Google Sheets (opcional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resumir com IA (opcional)": {
+      "main": [
+        [
+          {
+            "node": "Salvar no Google Sheets (opcional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

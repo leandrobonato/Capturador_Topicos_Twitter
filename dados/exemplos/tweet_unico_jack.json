@@ -1,0 +1,20 @@
+{
+  "classificacao": "tweet_unico",
+  "total_tweets": 1,
+  "autor_usuario": "jack",
+  "autor_nome": "jack",
+  "tweets": [
+    {
+      "id": "20",
+      "autor_nome": "jack",
+      "autor_usuario": "jack",
+      "texto": "just setting up my twttr",
+      "criado_em": "2006-03-21T20:50:14.000Z",
+      "curtidas": 307450,
+      "respostas": 17965,
+      "retweets": 0,
+      "in_reply_to_id": null,
+      "in_reply_to_usuario": null
+    }
+  ]
+}

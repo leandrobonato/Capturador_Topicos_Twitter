@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Ambientes virtuais
+.venv/
+env/
+venv/
+ENV/
+
+# Variáveis de ambiente / credenciais locais
+.env
+
+# Cache de testes
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
